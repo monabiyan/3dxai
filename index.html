@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>3D Object Renderer</title>
+  <style>
+    body { margin: 0; padding: 0; overflow: hidden; }
+    #container { display: flex; flex-direction: column; height: 100vh; }
+    #input { flex: 0 0 30%; font-family: monospace; padding: 10px; box-sizing: border-box; width: 100%; height: 100%; resize: none; }
+    #render { padding: 5px; flex-shrink: 0; }
+    #scene { flex: 1; background-color: #eee; }
+  </style>
+</head>
+<body>
+<div id="container">
+  <textarea id="input">define part body {
+    shape: box(0.4, 0.3, 0.6)
+    material: wood
+    connection_points: {
+        head: {position: (0.2, 0.15, 0.6), normal: (0, 0, 1), tangent: (1, 0, 0)},
+        left_arm: {position: (0, 0.15, 0.5), normal: (-1, 0, 0), tangent: (0, 1, 0)},
+        right_arm: {position: (0.4, 0.15, 0.5), normal: (1, 0, 0), tangent: (0, 1, 0)},
+        left_leg: {position: (0.1, 0.15, 0), normal: (0, 0, -1), tangent: (1, 0, 0)},
+        right_leg: {position: (0.3, 0.15, 0), normal: (0, 0, -1), tangent: (1, 0, 0)}
+    }
+}
+define part head {
+    shape: box(0.3, 0.25, 0.3)
+    material: wood
+    connection_points: {
+        base: {position: (0.15, 0.125, 0), normal: (0, 0, -1), tangent: (1, 0, 0)},
+        left_ear: {position: (0.05, 0.125, 0.3), normal: (0, 0, 1), tangent: (1, 0, 0)},
+        right_ear: {position: (0.25, 0.125, 0.3), normal: (0, 0, 1), tangent: (1, 0, 0)}
+    }
+}
+define part arm {
+    shape: cylinder(0.05, 0.4)
+    material: wood
+    connection_points: {
+        attach: {position: (0, 0, 0), normal: (0, 0, -1), tangent: (1, 0, 0)}
+    }
+}
+define part ear {
+    shape: box(0.1, 0.05, 0.3)
+    material: wood
+    connection_points: {
+        base: {position: (0.05, 0.025, 0), normal: (0, 0, -1), tangent: (1, 0, 0)}
+    }
+}
+define part leg {
+    shape: cylinder(0.07, 0.4)
+    material: wood
+    connection_points: {
+        top: {position: (0, 0, 0.4), normal: (0, 0, 1), tangent: (1, 0, 0)}
+    }
+}
+assembly rabbit {
+    parts: {
+        body1: body,
+        head1: head,
+        left_arm1: arm,
+        right_arm1: arm,
+        left_ear1: ear,
+        right_ear1: ear,
+        left_leg1: leg,
+        right_leg1: leg
+    }
+    connections: {
+        connect(head1.base, body1.head),
+        connect(left_arm1.attach, body1.left_arm),
+        connect(right_arm1.attach, body1.right_arm),
+        connect(left_ear1.base, head1.left_ear),
+        connect(right_ear1.base, head1.right_ear),
+        connect(left_leg1.top, body1.left_leg),
+        connect(right_leg1.top, body1.right_leg)
+    }
+}</textarea>
+  <button id="render">Render</button>
+  <div id="scene"></div>
+</div>
+
+<script>
+  function loadScript(url, callback) {
+    const script = document.createElement('script');
+    script.src = url;
+    script.onload = callback;
+    script.onerror = function() {
+      console.error("Error loading script: " + url);
+    };
+    document.head.appendChild(script);
+  }
+
+  function loadThreeJS(callback) {
+    loadScript("https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js", function(){
+      loadScript("https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js", callback);
+    });
+  }
+
+  loadThreeJS(function(){
+    const sceneDiv = document.getElementById('scene');
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, sceneDiv.clientWidth / sceneDiv.clientHeight, 0.1, 1000);
+    camera.position.set(2, 2, 2);
+    camera.lookAt(0, 0, 0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(sceneDiv.clientWidth, sceneDiv.clientHeight);
+    sceneDiv.appendChild(renderer.domElement);
+
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+    directionalLight.position.set(1, 1, 1).normalize();
+    scene.add(directionalLight);
+    const gridHelper = new THREE.GridHelper(10, 10);
+    scene.add(gridHelper);
+
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    window.addEventListener('resize', () => {
+      camera.aspect = sceneDiv.clientWidth / sceneDiv.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(sceneDiv.clientWidth, sceneDiv.clientHeight);
+    });
+
+    document.getElementById('render').addEventListener('click', () => {
+      scene.children = scene.children.filter(child =>
+        child.type === 'AmbientLight' || child.type === 'DirectionalLight' || child.type === 'GridHelper'
+      );
+      const input = document.getElementById('input').value;
+      try {
+        const { parts, assembly } = parseInput(input);
+        const model = buildModel(parts, assembly);
+        if (model) {
+          scene.add(model);
+          centerCameraOnObject(model, camera, controls);
+        }
+      } catch (error) {
+        alert('Error parsing input: ' + error.message);
+        console.error(error);
+      }
+    });
+
+    function centerCameraOnObject(object, camera, controls) {
+      const box = new THREE.Box3().setFromObject(object);
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z);
+      const fov = camera.fov * (Math.PI / 180);
+      let cameraZ = maxDim / (2 * Math.tan(fov / 2));
+      cameraZ *= 1.5;
+      camera.position.set(center.x + cameraZ, center.y + cameraZ, center.z + cameraZ);
+      camera.lookAt(center);
+      controls.target.copy(center);
+      controls.update();
+    }
+
+    function parseInput(input) {
+      const lines = input.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+      let parts = [];
+      let assembly = null;
+      let i = 0;
+      while (i < lines.length) {
+        if (lines[i].startsWith('define part')) {
+          const partMatch = lines[i].match(/define part (\w+) \{/);
+          if (!partMatch) throw new Error('Invalid part definition: ' + lines[i]);
+          const partName = partMatch[1];
+          i++;
+          const shapeMatch = lines[i].match(/shape:\s*(\w+)\(([^)]*)\)/);
+          if (!shapeMatch) throw new Error('Invalid shape definition: ' + lines[i]);
+          const shapeType = shapeMatch[1];
+          const shapeParams = shapeMatch[2].split(',').map(s => parseFloat(s.trim()));
+          const shape = { type: shapeType, params: shapeParams };
+          i++;
+          const materialMatch = lines[i].match(/material:\s*(\w+)/);
+          if (!materialMatch) throw new Error('Invalid material definition: ' + lines[i]);
+          const material = materialMatch[1];
+          i++;
+          if (!lines[i].startsWith('connection_points')) throw new Error('Expected connection_points at: ' + lines[i]);
+          let connectionStart = i;
+          if (lines[i].includes('{')) {
+            connectionStart = i;
+          } else {
+            i++;
+            if (!lines[i].startsWith('{')) throw new Error('Expected "{" after connection_points at: ' + lines[connectionStart]);
+          }
+          i++;
+          const connectionPoints = {};
+          while (i < lines.length && !lines[i].startsWith('}')) {
+            const cpMatch = lines[i].match(/(\w+):\s*\{position:\s*\(([^)]*)\),\s*normal:\s*\(([^)]*)\),\s*tangent:\s*\(([^)]*)\)\}/);
+            if (cpMatch) {
+              const cpName = cpMatch[1];
+              const posArr = cpMatch[2].split(',').map(s => parseFloat(s.trim()));
+              const normArr = cpMatch[3].split(',').map(s => parseFloat(s.trim()));
+              const tanArr = cpMatch[4].split(',').map(s => parseFloat(s.trim()));
+              connectionPoints[cpName] = { position: posArr, normal: normArr, tangent: tanArr };
+            }
+            i++;
+          }
+          i++;
+          parts.push({ name: partName, shape, material, connectionPoints });
+        } else if (lines[i].startsWith('assembly')) {
+          const asmMatch = lines[i].match(/assembly (\w+) \{/);
+          if (!asmMatch) throw new Error('Invalid assembly definition: ' + lines[i]);
+          const assemblyName = asmMatch[1];
+          i++;
+          if (!lines[i].startsWith('parts:')) throw new Error('Expected parts: in assembly at: ' + lines[i]);
+          let partsStart = i;
+          if (lines[i].includes('{')) {
+            partsStart = i;
+          } else {
+            i++;
+            if (!lines[i].startsWith('{')) throw new Error('Expected "{" after parts: at: ' + lines[partsStart]);
+          }
+          i++;
+          const partsList = {};
+          while (i < lines.length && !lines[i].startsWith('}')) {
+            const partRefMatch = lines[i].match(/(\w+):\s*(\w+),?\s*$/);
+            if (partRefMatch) {
+              const instanceName = partRefMatch[1];
+              const refName = partRefMatch[2];
+              partsList[instanceName] = refName;
+            }
+            i++;
+          }
+          i++;
+          if (!lines[i].startsWith('connections')) throw new Error('Expected connections: in assembly at: ' + lines[i]);
+          let connStart = i;
+          if (lines[i].includes('{')) {
+            connStart = i;
+          } else {
+            i++;
+            if (!lines[i].startsWith('{')) throw new Error('Expected "{" after connections: at: ' + lines[connStart]);
+          }
+          i++;
+          const connections = [];
+          while (i < lines.length && !lines[i].startsWith('}')) {
+            const connMatch = lines[i].match(/connect\((\w+)\.(\w+),\s*(\w+)\.(\w+)\),?\s*$/);
+            if (connMatch) {
+              const instA = connMatch[1], cpA = connMatch[2], instB = connMatch[3], cpB = connMatch[4];
+              connections.push([instA, cpA, instB, cpB]);
+            }
+            i++;
+          }
+          i++;
+          if (i < lines.length && lines[i].startsWith('}')) i++;
+          assembly = { name: assemblyName, parts: partsList, connections };
+        } else {
+          i++;
+        }
+      }
+      return { parts, assembly };
+    }
+
+    function buildModel(parts, assembly) {
+      if (!assembly) throw new Error('No assembly defined in input.');
+      const partMap = new Map(parts.map(p => [p.name, p]));
+      const geometries = new Map();
+      const materials = new Map();
+      parts.forEach(part => {
+        let geometry;
+        if (part.shape.type === 'box') {
+          const [w, d, h] = part.shape.params;
+          geometry = new THREE.BoxGeometry(w, d, h);
+          geometry.translate(w / 2, d / 2, h / 2);
+        } else if (part.shape.type === 'cylinder') {
+          const [r, h] = part.shape.params;
+          geometry = new THREE.CylinderGeometry(r, r, h, 32);
+          geometry.rotateX(Math.PI / 2);
+          geometry.translate(0, 0, h / 2);
+        } else {
+          throw new Error('Unsupported shape type: ' + part.shape.type);
+        }
+        let mat;
+        switch (part.material) {
+          case 'wood': mat = new THREE.MeshLambertMaterial({ color: 0x8B4513 }); break;
+          case 'metal': mat = new THREE.MeshLambertMaterial({ color: 0xC0C0C0 }); break;
+          case 'plastic': mat = new THREE.MeshLambertMaterial({ color: 0x0000FF }); break;
+          default: mat = new THREE.MeshLambertMaterial({ color: 0xffffff }); break;
+        }
+        geometries.set(part.name, geometry);
+        materials.set(part.name, mat);
+      });
+      const instances = new Map();
+      for (const [instanceName, partName] of Object.entries(assembly.parts)) {
+        const definition = partMap.get(partName);
+        if (!definition) throw new Error('Assembly references unknown part: ' + partName);
+        const geometry = geometries.get(partName);
+        const material = materials.get(partName);
+        const mesh = new THREE.Mesh(geometry, material);
+        const object = new THREE.Object3D();
+        object.name = instanceName;
+        mesh.name = instanceName + '_mesh';
+        object.add(mesh);
+        object.userData.part = definition;
+        object.matrixAutoUpdate = false;
+        object.matrix.identity();
+        instances.set(instanceName, object);
+      }
+      const root = Object.keys(assembly.parts)[0];
+      const rootObj = instances.get(root);
+      assembly.connections.forEach(([instA, cpA, instB, cpB]) => {
+        const objA = instances.get(instA);
+        const objB = instances.get(instB);
+        const parentObj = (instB === root) ? objB : objA;
+        const childObj = (instB === root) ? objA : objB;
+        const parentConn = parentObj.userData.part.connectionPoints[instB === root ? cpB : cpA];
+        const childConn = childObj.userData.part.connectionPoints[instB === root ? cpA : cpB];
+        const M_absolute = computeAbsoluteMatrix(parentObj, parentConn, childConn);
+        childObj.matrix.copy(M_absolute);
+        childObj.updateMatrix();
+        rootObj.add(childObj);
+      });
+      rootObj.updateMatrixWorld(true);
+      return rootObj;
+    }
+
+    function computeAbsoluteMatrix(parentObj, parentConn, childConn) {
+      const parentPos = parentObj.localToWorld(new THREE.Vector3(...parentConn.position));
+      const parentQuat = new THREE.Quaternion().setFromRotationMatrix(parentObj.matrixWorld);
+      const parentNormal = new THREE.Vector3(...parentConn.normal).applyQuaternion(parentQuat).normalize();
+      const parentTangent = new THREE.Vector3(...parentConn.tangent).applyQuaternion(parentQuat).normalize();
+      const childPosLocal = new THREE.Vector3(...childConn.position);
+      const childNormalLocal = new THREE.Vector3(...childConn.normal).normalize();
+      const childTangentLocal = new THREE.Vector3(...childConn.tangent).normalize();
+      const R1 = new THREE.Quaternion().setFromUnitVectors(childNormalLocal, parentNormal.clone().multiplyScalar(-1));
+      const rotatedTangent = childTangentLocal.clone().applyQuaternion(R1).normalize();
+      const axis = parentNormal.clone().multiplyScalar(-1);
+      const dot = rotatedTangent.dot(parentTangent);
+      const cross = rotatedTangent.clone().cross(parentTangent).dot(axis);
+      const angle = Math.atan2(cross, dot);
+      const R2 = new THREE.Quaternion().setFromAxisAngle(axis, angle);
+      const R = new THREE.Quaternion().multiplyQuaternions(R2, R1);
+      const childPosRotated = childPosLocal.clone().applyQuaternion(R);
+      const translation = new THREE.Vector3().subVectors(parentPos, childPosRotated);
+      const M = new THREE.Matrix4()
+        .makeTranslation(translation.x, translation.y, translation.z)
+        .multiply(new THREE.Matrix4().makeRotationFromQuaternion(R));
+      return M;
+    }
+  });
+</script>
+</body>
+</html>
