@@ -1,0 +1,32 @@
+define part leg {
+    shape: cylinder(0.1, 1)
+    material: wood
+    connection_points: {
+        top: {position: (0, 0, 1), normal: (0, 0, 1), tangent: (1, 0, 0)}
+    }
+}
+define part seat {
+    shape: box(1, 1, 0.2)
+    material: wood
+    connection_points: {
+        leg1: {position: (0.1, 0.1, 0), normal: (0, 0, -1), tangent: (1, 0, 0)},
+        leg2: {position: (0.9, 0.1, 0), normal: (0, 0, -1), tangent: (1, 0, 0)},
+        leg3: {position: (0.1, 0.9, 0), normal: (0, 0, -1), tangent: (1, 0, 0)},
+        leg4: {position: (0.9, 0.9, 0), normal: (0, 0, -1), tangent: (1, 0, 0)}
+    }
+}
+assembly chair {
+    parts: {
+        seat1: seat,
+        leg1: leg,
+        leg2: leg,
+        leg3: leg,
+        leg4: leg
+    }
+    connections: {
+        connect(leg1.top, seat1.leg1),
+        connect(leg2.top, seat1.leg2),
+        connect(leg3.top, seat1.leg3),
+        connect(leg4.top, seat1.leg4)
+    }
+}
